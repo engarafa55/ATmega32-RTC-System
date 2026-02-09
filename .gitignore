@@ -1,0 +1,21 @@
+# Microchip/Atmel Studio Garbage
+*.atsuo
+*.atsln
+*.componentinfo
+*.xml
+*.obj
+*.o
+*.d
+*.lss
+*.map
+*.srec
+*.eep
+*.elf
+
+# Build Folders
+Debug/
+Release/
+.vs/
+
+# Keep the HEX only (Optional)
+!*.hex
