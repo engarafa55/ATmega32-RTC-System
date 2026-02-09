@@ -1,7 +1,7 @@
 /******************************************************************************
  * Module: APP
  * File Name: Real Time Clock.c
- * Description: Functional 24-Hour Real Time Clock
+ * Description: Main application source file for the Real Time Clock
  * Author: Abdelrahman Arafa
  * Email: engarafa55@gmail.com
  ******************************************************************************/
@@ -26,12 +26,14 @@
 /*******************************************************************************
  *                              Global Variables                               *
  *******************************************************************************/
-/* Counter to track time, incremented in ISR */
 volatile unsigned char seconds_counter = 0;
-volatile unsigned char minutes_counter = 0, hours_counter = 0;
+unsigned char minutes_counter = 0, hours_counter = 0;
 
-/* Keypad variables */
 unsigned char value, first_digit, second_digit;
+
+unsigned char mode = 24;
+unsigned char am_pm = 0;        // 0 = AM, 1 = PM
+unsigned char ampm_changed = 0; // NEW ? to prevent flicker
 
 /*******************************************************************************
  *                             Functions Definitions                           *
@@ -42,7 +44,7 @@ unsigned char value, first_digit, second_digit;
  * @param  result Pointer to store the result.
  * @return None
  */
-void get_two_digits(volatile unsigned char *result) {
+void get_two_digits(unsigned char *result) {
   do {
     first_digit = keypad_u8check_press();
   } while (first_digit == NOTPRESSED);
@@ -64,35 +66,72 @@ void get_two_digits(volatile unsigned char *result) {
  * @return return int (standard for main, though never returns in embedded)
  */
 int main(void) {
-  /* Initialize Hardware */
   keypad_vInit();
   LCD_vInit();
   seven_seg_vinit('B');
-  DDRC |= 0b00111111; // Configure 7-segment control pins
+  DDRC |= 0b00111111;
 
-  /* Initialize Timer2 in Async Mode */
   timer2_overflow_init_interrupt();
-  sei(); // Enable interrupts
+  sei();
 
   while (1) {
+    // ===================== CHOOSE MODE =====================
+    LCD_clearscreen();
+    LCD_vSend_string("1-12h   2-24h");
+    LCD_movecursor(2, 1);
+    LCD_vSend_string("Choose mode");
+
+    while (1) {
+      value = keypad_u8check_press();
+      if (value == '1') {
+        mode = 12;
+        break;
+      }
+      if (value == '2') {
+        mode = 24;
+        break;
+      }
+    }
+
+    while (keypad_u8check_press() != NOTPRESSED)
+      ;
+
+    // ================== ASK AM/PM (if 12h) ==================
+    if (mode == 12) {
+      LCD_clearscreen();
+      LCD_vSend_string("1=AM   2=PM");
+
+      while (1) {
+        value = keypad_u8check_press();
+        if (value == '1') {
+          am_pm = 0;
+          break;
+        }
+        if (value == '2') {
+          am_pm = 1;
+          break;
+        }
+      }
+      while (keypad_u8check_press() != NOTPRESSED)
+        ;
+    }
+
     // ================= SET HOURS =================
     LCD_clearscreen();
     LCD_vSend_string("Set Hours:");
     LCD_movecursor(2, 1);
 
     unsigned char hrs;
-    /* Use a temporary non-volatile variable for input validation */
-    /* Note: get_two_digits expects volatile *, but we can cast or just use the
-     * global */
-    /* To stick to the prototype, let's just use a local loop with the global
-     * counter or temp */
-
     while (1) {
-      /* We need to pass a volatile pointer to get_two_digits */
-      get_two_digits(&hours_counter);
+      get_two_digits(&hrs);
 
-      /* Validate 24H Format (0-23) */
-      if (hours_counter <= 23) {
+      if (mode == 24 && hrs <= 23) {
+        hours_counter = hrs;
+        break;
+      }
+
+      if (mode == 12 && hrs >= 1 && hrs <= 12) {
+        hours_counter = hrs;
         break;
       }
 
@@ -118,18 +157,24 @@ int main(void) {
 
     // ===================== Final LCD =====================
     LCD_clearscreen();
-    LCD_vSend_string("24h Mode");
+    if (mode == 12) {
+      LCD_vSend_string(am_pm ? "Mode: PM" : "Mode: AM");
+    } else
+      LCD_vSend_string("24h Mode");
+
     LCD_movecursor(2, 1);
     LCD_vSend_string("Press 0 to Reset");
 
+    ampm_changed = 0;
+
     // ==================== RUN CLOCK =====================
     while (1) {
-      // Check for reset request
+      // Reset?
       value = keypad_u8check_press();
       if (value == '0')
         break;
 
-      // Multiplexing Display
+      // Multiplexing
       PORTC = 0b111110;
       seven_seg_write('B', seconds_counter % 10);
       _delay_ms(2);
@@ -154,9 +199,33 @@ int main(void) {
       seven_seg_write('B', hours_counter / 10);
       _delay_ms(2);
 
-    } // while display loop
+      // 12H MODE HANDLING
+      if (mode == 12) {
+        // Rollover
+        if (hours_counter > 12)
+          hours_counter = 1;
 
-  } // while main loop
+        // Perfect AM/PM toggle at EXACT 12:00:00
+        if (hours_counter == 12 && minutes_counter == 0 &&
+            seconds_counter == 0) {
+          if (!ampm_changed) // only once!
+          {
+            am_pm ^= 1;
+            ampm_changed = 1;
+
+            LCD_clearscreen();
+            LCD_vSend_string(am_pm ? "Mode: PM" : "Mode: AM");
+            LCD_movecursor(2, 1);
+            LCD_vSend_string("Press 0 to Reset");
+          }
+        } else {
+          ampm_changed = 0;
+        }
+      }
+
+    } // while display
+
+  } // while 1
 }
 
 /**
@@ -177,8 +246,8 @@ ISR(TIMER2_OVF_vect) {
     hours_counter++;
   }
 
-  /* 24-Hour Format Logic */
-  if (hours_counter >= 24) {
-    hours_counter = 0;
+  if (mode == 24) {
+    if (hours_counter >= 24)
+      hours_counter = 0;
   }
 }
