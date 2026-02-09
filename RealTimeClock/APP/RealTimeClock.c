@@ -1,7 +1,7 @@
 /******************************************************************************
  * Module: APP
  * File Name: Real Time Clock.c
- * Description: v0.1 Prototype - Logic-less counter for hardware verification
+ * Description: Functional 24-Hour Real Time Clock
  * Author: Abdelrahman Arafa
  * Email: engarafa55@gmail.com
  ******************************************************************************/
@@ -32,8 +32,6 @@ volatile unsigned char minutes_counter = 0, hours_counter = 0;
 
 /* Keypad variables */
 unsigned char value, first_digit, second_digit;
-
-/* Logic for v2: Remove global mode/am_pm variables here */
 
 /*******************************************************************************
  *                             Functions Definitions                           *
@@ -77,15 +75,34 @@ int main(void) {
   sei(); // Enable interrupts
 
   while (1) {
-    /* Logic for v2: Remove mode selection logic here */
-
     // ================= SET HOURS =================
     LCD_clearscreen();
     LCD_vSend_string("Set Hours:");
     LCD_movecursor(2, 1);
 
-    /* Logic for v2: Allow user to input any value (00-99) without validation */
-    get_two_digits(&hours_counter);
+    unsigned char hrs;
+    /* Use a temporary non-volatile variable for input validation */
+    /* Note: get_two_digits expects volatile *, but we can cast or just use the
+     * global */
+    /* To stick to the prototype, let's just use a local loop with the global
+     * counter or temp */
+
+    while (1) {
+      /* We need to pass a volatile pointer to get_two_digits */
+      get_two_digits(&hours_counter);
+
+      /* Validate 24H Format (0-23) */
+      if (hours_counter <= 23) {
+        break;
+      }
+
+      LCD_clearscreen();
+      LCD_vSend_string("Invalid! Retry");
+      _delay_ms(900);
+      LCD_clearscreen();
+      LCD_vSend_string("Set Hours:");
+      LCD_movecursor(2, 1);
+    }
 
     // ================= SET MINUTES =================
     LCD_clearscreen();
@@ -101,7 +118,7 @@ int main(void) {
 
     // ===================== Final LCD =====================
     LCD_clearscreen();
-    LCD_vSend_string("Clock Running...");
+    LCD_vSend_string("24h Mode");
     LCD_movecursor(2, 1);
     LCD_vSend_string("Press 0 to Reset");
 
@@ -137,8 +154,6 @@ int main(void) {
       seven_seg_write('B', hours_counter / 10);
       _delay_ms(2);
 
-      /* Logic for v2: 12H/24H switching removed. */
-
     } // while display loop
 
   } // while main loop
@@ -162,6 +177,8 @@ ISR(TIMER2_OVF_vect) {
     hours_counter++;
   }
 
-  /* Logic for v2: Hours increment indefinitely (23 -> 24 -> 25...) */
-  /* Logic for v2: Remove 24H reset logic here */
+  /* 24-Hour Format Logic */
+  if (hours_counter >= 24) {
+    hours_counter = 0;
+  }
 }
